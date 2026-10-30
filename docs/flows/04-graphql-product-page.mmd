@@ -1,0 +1,19 @@
+%% POST /graphql  { product(id: 1) { name seller { name } reviews(last: 3) { rating } } }
+flowchart LR
+  C[POST /graphql · one query] --> CTX[Apollo context · new DataLoaders]
+  CTX --> V{Valid query?}
+  V -->|no| E400[400 · unknown field or too deep]
+  V -->|yes| COST{Cost up to 500?}
+  COST -->|no| E400B[400 · QUERY_TOO_COMPLEX]
+  COST -->|yes| Q[product resolver · ProductsResolver]
+  Q --> K{In Redis?}
+  K -->|miss| DB[(SELECT product · WHERE id = 1)]
+  K -->|hit| HIT[skip the database · 0 DB queries]
+  DB --> F{Found?}
+  F -->|no| NULL[200 · data.product = null]
+  F -->|yes| FIELDS[seller + reviews · ResolveField]
+  FIELDS --> DL[DataLoader · collects ids in one tick]
+  DL --> MGET{All in Redis?}
+  MGET -->|yes| HIT2[200 from Redis · asked fields only]
+  MGET -->|no| DB2[(SELECT WHERE IN · one per table)]
+  DB2 --> OK[200 asked fields only · cache-control from hints]

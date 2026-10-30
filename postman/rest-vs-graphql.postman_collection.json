@@ -1,0 +1,819 @@
+{
+  "info": {
+    "name": "REST vs GraphQL (NestJS)",
+    "description": "Same product page served by REST and GraphQL. Every response has an X-Cache-Info header that says where it came from, for example `CDN HIT | app not called | stored 20s ago | fresh for 40s more` or `app | Redis MISS | 1 DB query`. Requests through {{cdnUrl}} go through Varnish (`docker compose up -d`). The Test Results tab shows it for each request.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "cdnUrl",
+      "value": "http://localhost:8080"
+    }
+  ],
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const info = pm.response.headers.get('X-Cache-Info') || '-';",
+          "const cache = pm.response.headers.get('Cache-Control') || 'none';",
+          "pm.test(`Status ${pm.response.code} | ${info} | Cache-Control: ${cache}`, () => {});"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Requests",
+      "item": [
+        {
+          "name": "REST 1/3 · product",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Cache",
+                "value": "off"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/products/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "1"
+              ]
+            },
+            "description": "Returns every field, the screen needs 3."
+          }
+        },
+        {
+          "name": "REST 2/3 · latest reviews",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Cache",
+                "value": "off"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/products/1/reviews?last=3",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "1",
+                "reviews"
+              ],
+              "query": [
+                {
+                  "key": "last",
+                  "value": "3"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "REST 3/3 · seller (needs sellerId from 1/3)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Cache",
+                "value": "off"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/sellers/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "sellers",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GraphQL · product page in one request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Cache",
+                "value": "off"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  product(id: 1) {\n    name\n    priceMoney { amount currency }\n    seller { name }\n    reviews(last: 3) { rating comment }\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        }
+      ],
+      "description": "X-Cache: off on every request, so both APIs hit the database and the counts are comparable."
+    },
+    {
+      "name": "2. Caching (start Varnish: docker compose up -d)",
+      "item": [
+        {
+          "name": "REST · via CDN · first request → MISS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{cdnUrl}}/v1/products/42",
+              "host": [
+                "{{cdnUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "42"
+              ]
+            },
+            "description": "Cache-Control: public, max-age=0, s-maxage=60. The CDN keeps it for a minute; the browser revalidates."
+          }
+        },
+        {
+          "name": "REST · via CDN · same URL again → HIT",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{cdnUrl}}/v1/products/42",
+              "host": [
+                "{{cdnUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "42"
+              ]
+            },
+            "description": "Served by the CDN. X-DB-Queries and X-Cache-Status are gone because the app never saw this request."
+          }
+        },
+        {
+          "name": "GraphQL POST · via CDN → always PASS",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  product(id: 42) { name description }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{cdnUrl}}/graphql",
+              "host": [
+                "{{cdnUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            },
+            "description": "Same URL for every query and the query is in the body, so the CDN does not cache POST."
+          }
+        },
+        {
+          "name": "GraphQL GET · query in the URL · send twice → HIT",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "apollo-require-preflight",
+                "value": "true"
+              }
+            ],
+            "url": {
+              "raw": "{{cdnUrl}}/graphql?query=%7B%20product%28id%3A%2042%29%20%7B%20name%20description%20%7D%20%7D",
+              "host": [
+                "{{cdnUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ],
+              "query": [
+                {
+                  "key": "query",
+                  "value": "%7B%20product%28id%3A%2042%29%20%7B%20name%20description%20%7D%20%7D"
+                }
+              ]
+            },
+            "description": "Fix 1: every query gets its own URL. Long queries make long URLs."
+          }
+        },
+        {
+          "name": "Persisted query a · GET hash → PersistedQueryNotFound",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "apollo-require-preflight",
+                "value": "true"
+              }
+            ],
+            "url": {
+              "raw": "{{cdnUrl}}/graphql?extensions=%7B%22persistedQuery%22%3A%7B%22version%22%3A1%2C%22sha256Hash%22%3A%228150412c5499439aaf78fecb5a5b477158f1d92c8ec1de0202aa7fa79664579a%22%7D%7D&variables=%7B%22id%22%3A42%7D",
+              "host": [
+                "{{cdnUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ],
+              "query": [
+                {
+                  "key": "extensions",
+                  "value": "%7B%22persistedQuery%22%3A%7B%22version%22%3A1%2C%22sha256Hash%22%3A%228150412c5499439aaf78fecb5a5b477158f1d92c8ec1de0202aa7fa79664579a%22%7D%7D"
+                },
+                {
+                  "key": "variables",
+                  "value": "%7B%22id%22%3A42%7D"
+                }
+              ]
+            },
+            "description": "The server does not know this hash yet. The error is no-store, so the CDN does not keep it."
+          }
+        },
+        {
+          "name": "Persisted query b · register: POST query + hash",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"query\": \"query ProductPage($id: Int!) { product(id: $id) { name description } }\",\n  \"variables\": {\n    \"id\": 42\n  },\n  \"extensions\": {\n    \"persistedQuery\": {\n      \"version\": 1,\n      \"sha256Hash\": \"8150412c5499439aaf78fecb5a5b477158f1d92c8ec1de0202aa7fa79664579a\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{cdnUrl}}/graphql",
+              "host": [
+                "{{cdnUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            },
+            "description": "Registers the query text under its SHA-256 hash. The query uses $id, so one hash covers every product."
+          }
+        },
+        {
+          "name": "Persisted query c · GET hash + id 42 · send twice → HIT",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "apollo-require-preflight",
+                "value": "true"
+              }
+            ],
+            "url": {
+              "raw": "{{cdnUrl}}/graphql?extensions=%7B%22persistedQuery%22%3A%7B%22version%22%3A1%2C%22sha256Hash%22%3A%228150412c5499439aaf78fecb5a5b477158f1d92c8ec1de0202aa7fa79664579a%22%7D%7D&variables=%7B%22id%22%3A42%7D",
+              "host": [
+                "{{cdnUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ],
+              "query": [
+                {
+                  "key": "extensions",
+                  "value": "%7B%22persistedQuery%22%3A%7B%22version%22%3A1%2C%22sha256Hash%22%3A%228150412c5499439aaf78fecb5a5b477158f1d92c8ec1de0202aa7fa79664579a%22%7D%7D"
+                },
+                {
+                  "key": "variables",
+                  "value": "%7B%22id%22%3A42%7D"
+                }
+              ]
+            },
+            "description": "Short URL. The hash and the variables are both in the URL, so they are both in the CDN cache key."
+          }
+        },
+        {
+          "name": "Persisted query d · same hash, id 43 → its own MISS",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "apollo-require-preflight",
+                "value": "true"
+              }
+            ],
+            "url": {
+              "raw": "{{cdnUrl}}/graphql?extensions=%7B%22persistedQuery%22%3A%7B%22version%22%3A1%2C%22sha256Hash%22%3A%228150412c5499439aaf78fecb5a5b477158f1d92c8ec1de0202aa7fa79664579a%22%7D%7D&variables=%7B%22id%22%3A43%7D",
+              "host": [
+                "{{cdnUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ],
+              "query": [
+                {
+                  "key": "extensions",
+                  "value": "%7B%22persistedQuery%22%3A%7B%22version%22%3A1%2C%22sha256Hash%22%3A%228150412c5499439aaf78fecb5a5b477158f1d92c8ec1de0202aa7fa79664579a%22%7D%7D"
+                },
+                {
+                  "key": "variables",
+                  "value": "%7B%22id%22%3A43%7D"
+                }
+              ]
+            },
+            "description": "Different variables, different cache key: product 42's response is never served for 43."
+          }
+        },
+        {
+          "name": "Edit · PATCH description (REST)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Edited description\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/products/42",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "42"
+              ]
+            },
+            "description": "Run 'REST · via CDN' first, wait about 20 seconds, then send this. The server cache is cleared straight away; the CDN copy is not."
+          }
+        },
+        {
+          "name": "Edit · REST via CDN after the edit → old until Age reaches 60",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{cdnUrl}}/v1/products/42",
+              "host": [
+                "{{cdnUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "42"
+              ]
+            },
+            "description": "Still the old description while the CDN copy is valid. The minute counts from when the CDN stored it, not from the edit. After it expires, the next request fetches the new one."
+          }
+        },
+        {
+          "name": "Edit · GraphQL mutation → no-store",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation {\n  updateProductDescription(id: 42, description: \"Edited from GraphQL\") {\n    name\n    description\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            },
+            "description": "Same edit through GraphQL. Mutations get no-store."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Errors",
+      "item": [
+        {
+          "name": "REST · 404 Not Found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/products/999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "999"
+              ]
+            }
+          }
+        },
+        {
+          "name": "REST · 400 validation (limit > 100)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/products?limit=1000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "1000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "GraphQL · missing product → 200 + null",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  product(id: 999) { name }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GraphQL · unknown field → rejected before the DB",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  product(id: 1) { cost }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Versioning",
+      "item": [
+        {
+          "name": "REST v1 · price is a number",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/products/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "REST v2 · price is { amount, currency }",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v2/products/1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v2",
+                "products",
+                "1"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GraphQL · deprecated price still works",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  product(id: 1) { price }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GraphQL · new priceMoney field",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  product(id: 1) { priceMoney { amount currency } }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. N+1 and rate limiting",
+      "item": [
+        {
+          "name": "GraphQL · 20 products + seller, DataLoader off → 21 DB queries",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-DataLoader",
+                "value": "off"
+              },
+              {
+                "key": "X-Cache",
+                "value": "off"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  products(first: 20) {\n    name\n    seller { name }\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GraphQL · same query, DataLoader on → 2 DB queries",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Cache",
+                "value": "off"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  products(first: 20) {\n    name\n    seller { name }\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GraphQL · too complex → rejected",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  products(first: 100) {\n    name\n    seller { name }\n    reviews(last: 3) { rating comment }\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        },
+        {
+          "name": "REST · list (100 requests/min per IP)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/products?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Server cache (Redis)",
+      "item": [
+        {
+          "name": "REST · product 42, first read → database",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/products/42",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "42"
+              ]
+            },
+            "description": "Run this folder in order. Cache TTL is 60 seconds."
+          }
+        },
+        {
+          "name": "REST · product 42 again → Redis, 0 DB queries",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/products/42",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "42"
+              ]
+            }
+          }
+        },
+        {
+          "name": "GraphQL · product 42 → same cache, 0 DB queries",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  product(id: 42) { name priceMoney { amount } }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/graphql",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          }
+        },
+        {
+          "name": "REST · X-Cache: off → database again",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Cache",
+                "value": "off"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/products/42",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "products",
+                "42"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

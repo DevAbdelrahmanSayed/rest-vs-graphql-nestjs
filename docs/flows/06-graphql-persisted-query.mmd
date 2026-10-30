@@ -1,0 +1,11 @@
+%% GET /graphql?extensions={"persistedQuery":{"sha256Hash":...}}
+flowchart LR
+  C[GET /graphql?hash · persisted query] --> CSRF{Preflight header?}
+  CSRF -->|no| E400[400 blocked · CSRF prevention]
+  CSRF -->|yes| APQ{Hash known?}
+  APQ -->|no| NF[Not found · PERSISTED_QUERY_NOT_FOUND]
+  NF --> REG[Client sends POST once · query + hash]
+  REG --> STORE[Apollo saves it · hash to query]
+  APQ -->|yes| RUN[Run the query · same steps as POST]
+  RUN --> OK[200 · Cache-Control public]
+  OK --> CDN[CDN caches it · fixed URL like REST]

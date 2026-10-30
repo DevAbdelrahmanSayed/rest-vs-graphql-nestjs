@@ -1,0 +1,8 @@
+%% One screen in REST = 3 requests in 2 trips. The app joins the data.
+flowchart LR
+  APP[Mobile app · opens product page] -->|trip 1| P[GET /v1/products/1 · has sellerId]
+  APP -->|trip 1| R[GET reviews · last 3]
+  P -->|trip 2| S[GET /v1/sellers/1 · needs sellerId]
+  S --> JOIN[App joins the data · client side]
+  R --> JOIN
+  JOIN --> SCREEN[200 screen ready · 3 requests, 2 trips]

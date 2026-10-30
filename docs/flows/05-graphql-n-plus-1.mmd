@@ -1,0 +1,10 @@
+%% POST /graphql  { products(first: 20) { name seller { name } } }   with X-Cache: off
+flowchart LR
+  C[products first 20 + seller · one request] --> L[(SELECT products · LIMIT 20)]
+  L --> X{DataLoader on?}
+  X -->|yes| BATCH[DataLoader · collects 20 sellerIds]
+  BATCH --> Q1[(SELECT sellers · WHERE id IN 1..8)]
+  Q1 --> GOOD[200 · 2 DB queries]
+  X -->|no| N1[seller resolver · runs 20 times]
+  N1 --> Q20[(20 x SELECT seller · one per product)]
+  Q20 --> BAD[200 · 21 DB queries, N+1]

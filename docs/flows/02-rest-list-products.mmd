@@ -1,0 +1,13 @@
+%% GET /v1/products?limit=20  (ListProductsQueryDto + ValidationPipe)
+flowchart LR
+  C[GET /v1/products?limit=20 · Postman or app] --> G{Rate limit OK?}
+  G -->|no| E429[429 · ThrottlerGuard]
+  G -->|yes| V{limit 1 to 100?}
+  V -->|no| E400[400 · ValidationPipe]
+  V -->|yes| H[Controller · list]
+  H --> S[CatalogService · listProducts]
+  S --> K{In Redis?}
+  K -->|hit| HIT[200 from Redis · 0 DB queries]
+  K -->|miss| DB[(SELECT products · LIMIT 20)]
+  DB --> SET[Save in Redis · TTL 60s]
+  SET --> OK[200 JSON list · Cache-Control public]

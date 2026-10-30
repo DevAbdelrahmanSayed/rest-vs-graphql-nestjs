@@ -1,0 +1,17 @@
+%% GET /v1/products/1  (src/catalog/rest/products.controller.ts)
+%% NestJS order: middleware, guard, pipe, handler, interceptor.
+flowchart LR
+  C[GET /v1/products/1 · Postman or app] --> MW[Middleware · counts DB queries]
+  MW --> G{Rate limit OK?}
+  G -->|no| E429[429 · ThrottlerGuard]
+  G -->|yes| P{id is a number?}
+  P -->|no| E400[400 · ParseIntPipe]
+  P -->|yes| H[Controller · findOne]
+  H --> S[CatalogService · findProduct]
+  S --> K{In Redis?}
+  K -->|hit| HIT[200 from Redis · 0 DB queries]
+  K -->|miss| DB[(SELECT product · WHERE id = 1)]
+  DB --> F{Found?}
+  F -->|no| E404[404 · not cached]
+  F -->|yes| SET[Save in Redis · TTL 60s]
+  SET --> OK[200 JSON · Cache-Control public]

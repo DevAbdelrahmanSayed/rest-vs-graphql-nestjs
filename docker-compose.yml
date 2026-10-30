@@ -1,0 +1,16 @@
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6380:6379'
+
+  # A local CDN stand-in in front of the app. Send requests to :8080 instead of :3000.
+  cdn:
+    image: varnish:7.6
+    ports:
+      - '8080:80'
+    volumes:
+      - ./varnish/default.vcl:/etc/varnish/default.vcl:ro
+    # Lets Varnish reach the app on the host. Docker Desktop has this built in; Linux needs it.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'

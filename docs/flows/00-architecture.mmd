@@ -1,0 +1,10 @@
+%% Both APIs share one service, one Redis cache and one database.
+flowchart LR
+  APP[Mobile app · or Postman] -->|POST /graphql| GQL[Apollo server · GraphQL]
+  GQL --> RES[ProductsResolver · GraphQL]
+  RES --> DL[DataLoader · per request]
+  DL --> SVC[CatalogService · shared logic]
+  APP -->|GET /v1| REST[REST controllers · NestJS]
+  REST --> SVC
+  SVC -->|1 check| REDIS[(Redis · cache 60s)]
+  REDIS -->|2 on miss| DB[(Database · SQL)]
